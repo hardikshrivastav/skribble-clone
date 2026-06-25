@@ -33,6 +33,21 @@ const SEED_WORDS = [
   "TRAIN",
   "PIZZA",
   "DOG",
+  "ANGER",
+  "HAPPY",
+  "SAD",
+  "SUN",
+  "MOON",
+  "STAR",
+  "OCEAN",
+  "FOREST",
+  "DESERT",
+  "RAINBOW",
+  "GUITAR",
+  "PIANO",
+  "DRUMS",
+  "BALLOON",
+  "CUPCAKE",
 ];
 
 function initDatabase() {

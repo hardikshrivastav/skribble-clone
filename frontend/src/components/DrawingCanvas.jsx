@@ -71,6 +71,71 @@ function DrawingCanvas() {
 
   };
 
+  // MOBILE FIX: this is the key helper that makes touch drawing work.
+  //
+  // Mouse events give you e.nativeEvent.offsetX / offsetY for free — that's
+  // the position already measured relative to the canvas element itself.
+  // Touch events don't give you that at all; they only give clientX/clientY,
+  // which is the position relative to the whole browser window/viewport.
+  //
+  // On top of that, the canvas is drawn internally at a FIXED size
+  // (width={800} height={500} below), but on a phone screen it's visually
+  // shrunk down by the "w-full max-w-full" CSS classes. So a finger at
+  // pixel (160, 100) on a phone screen that's displaying an 800-wide
+  // canvas at, say, 360px wide on screen, actually corresponds to roughly
+  // (160 / 360) * 800 = ~355 in the canvas's real internal coordinate
+  // space — NOT 160. Skipping this scaling step is the most common reason
+  // mobile drawing "sort of works" but draws in the wrong place.
+  //
+  // This function does both corrections at once, and works for BOTH mouse
+  // and touch events, so startDrawing/draw/stopDrawing don't need two
+  // separate code paths — they just call this and get back the right
+  // {x, y} either way.
+  const getCanvasCoords = (e) => {
+
+    const canvas =
+      canvasRef.current;
+
+    const rect =
+      canvas.getBoundingClientRect();
+
+    // Touch events store their coordinates inside e.touches[0] (for an
+    // in-progress touch) or e.changedTouches[0] (fired on touchend, by
+    // which point e.touches is already empty). Mouse events have neither
+    // of these, so we fall back to the event itself, which has
+    // clientX/clientY directly on it.
+    const point =
+      e.touches && e.touches.length > 0
+        ? e.touches[0]
+        : e.changedTouches && e.changedTouches.length > 0
+        ? e.changedTouches[0]
+        : e;
+
+    // Step 1: make the coordinate relative to the canvas's top-left
+    // corner instead of the whole page.
+    const xRelativeToCanvas =
+      point.clientX - rect.left;
+
+    const yRelativeToCanvas =
+      point.clientY - rect.top;
+
+    // Step 2: scale from "however big the canvas is currently displayed
+    // on screen" up to "the canvas's real internal 800x500 coordinate
+    // space", since canvas.width/height (800/500) and the CSS-rendered
+    // size (rect.width/rect.height) are different on small screens.
+    const scaleX =
+      canvas.width / rect.width;
+
+    const scaleY =
+      canvas.height / rect.height;
+
+    return {
+      x: xRelativeToCanvas * scaleX,
+      y: yRelativeToCanvas * scaleY,
+    };
+
+  };
+
   useEffect(() => {
 
     const canvas =
@@ -135,21 +200,25 @@ function DrawingCanvas() {
       if (!isDrawer)
         return;
 
+      // MOBILE FIX: stops the browser's default touch behavior (page
+      // scroll / pull-to-refresh / pinch-zoom) from hijacking the touch
+      // before our drawing logic gets to use it. Calling this on every
+      // handler (start/move/end) is what makes the canvas feel like a
+      // real drawing surface on a touchscreen instead of a scrollable page.
+      e.preventDefault();
+
       drawing.current =
         true;
 
-      previousPoint.current = {
-        x:
-          e.nativeEvent.offsetX,
-
-        y:
-          e.nativeEvent.offsetY,
-      };
+      previousPoint.current =
+        getCanvasCoords(e);
 
     };
 
   const stopDrawing =
-    () => {
+    (e) => {
+
+      if (e) e.preventDefault();
 
       drawing.current =
         false;
@@ -170,13 +239,13 @@ function DrawingCanvas() {
       )
         return;
 
-      const currentPoint = {
-        x:
-          e.nativeEvent.offsetX,
+      // MOBILE FIX: same reason as in startDrawing — without this, moving
+      // your finger across the canvas scrolls the whole page on most
+      // mobile browsers instead of drawing.
+      e.preventDefault();
 
-        y:
-          e.nativeEvent.offsetY,
-      };
+      const currentPoint =
+        getCanvasCoords(e);
 
       const canvas =
         canvasRef.current;
@@ -345,6 +414,14 @@ function DrawingCanvas() {
           w-full
           max-w-full
         "
+        // MOBILE FIX: touch-none (Tailwind) sets the CSS touch-action:none
+        // property on the canvas. This tells the browser "don't try to
+        // scroll, zoom, or do anything else with touches on this element —
+        // I'm handling them myself." Without this, even with
+        // preventDefault() in the handlers, some mobile browsers can still
+        // briefly try to scroll before our JS runs, causing jittery or
+        // interrupted strokes.
+        style={{ touchAction: "none" }}
         onMouseDown={
           startDrawing
         }
@@ -355,6 +432,18 @@ function DrawingCanvas() {
           stopDrawing
         }
         onMouseLeave={
+          stopDrawing
+        }
+        onTouchStart={
+          startDrawing
+        }
+        onTouchMove={
+          draw
+        }
+        onTouchEnd={
+          stopDrawing
+        }
+        onTouchCancel={
           stopDrawing
         }
       />
